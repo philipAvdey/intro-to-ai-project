@@ -3,14 +3,20 @@
 import numpy as np
 import pandas as pd
 
+
 class Movie:
     def __init__(self, row: pd.Series):
-        self.title = row.get('title', 'Unknown')
-        self.movie_id = row.get('id', None)
-        self.genres_raw = row.get('genres', '')
+        self.title = row.get("title", "Unknown")
+        self.movie_id = row.get("id", None)
+        self.genres_raw = row.get("genres", "")
         self.genres = self.parse_genres(self.genres_raw)
+        self.keywords = row.get("keywords", "")  # space-separated string of keywords
+
+        # Combined feature vector (set by Vectorizer)
+        self.feature_vector: np.ndarray | None = None
+
+        # Legacy: kept for backward compatibility if needed
         self.genre_vector: np.ndarray | None = None
-        # can add more stuff later, just genres for now
 
     def parse_genres(self, genre_string: str) -> list[str]:
         if not isinstance(genre_string, str):
@@ -25,9 +31,14 @@ class Movie:
             genres.remove("Movie")
             genres.append("TV Movie")
         return genres
-    
+
     def set_genre_vector(self, vector: np.ndarray):
+        """Legacy method for backward compatibility."""
         self.genre_vector = vector
-    
+
+    def set_feature_vector(self, vector: np.ndarray):
+        """Set the combined feature vector for this movie."""
+        self.feature_vector = vector
+
     def __repr__(self):
-        return f"Movie(title={self.title!r}, genres={self.genres})"
+        return f"Movie(title={self.title!r}, genres={self.genres}, keywords={self.keywords!r})"
