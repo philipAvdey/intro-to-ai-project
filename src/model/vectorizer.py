@@ -14,19 +14,28 @@ from data_utils.movie import Movie
 @dataclass
 class CategoricalFeature:
     """Class for categorical features (meaning features which can be defined with discrete labels/groups)"""
+
     name: str  # e.g., "genres"
-    column: str  # column name in DataFrame 
+    column: str  # column name in DataFrame
     parser: Callable[
         [str], List[str]
     ]  # function to parse string values into a list of categories
+    weight: float = (
+        1.0  # weight for this feature (will be normalized with all other features)
+    )
+
 
 # TODO: somewhere, we're going to have to document why we chose TF IDF for text classification and how it works
 @dataclass
 class TextFeature:
     """Class for text feature (uses TF-IDF for text classification to determine which keywords are most important)."""
+
     name: str  # e.g., "keywords", "summary"
     column: str  # column name in DataFrame
     max_features: int = 100  # limit dimensionality of TF-IDF
+    weight: float = (
+        1.0  # weight for this feature (will be normalized with all other features)
+    )
     # stop_words are automatically handled by TfidfVectorizer, e.g. "the", "and"
 
 
@@ -35,18 +44,22 @@ class Vectorizer:
         self.df = df.copy()
 
         # Define categorical features (one-hot encoded)
-        # TODO: can add more to this
-        # TODO: also, we will add numerical features like popularity, etc
-        # TODO: we have to add weight to some of these; like popularity should not matter as much as keywords
+        # Weights: relative importance of each feature (will be normalized to sum to 1.0)
         self.categorical_features = [
-            # CategoricalFeature(name="genres", column="genres", parser=self._parse_genres),
+            CategoricalFeature(
+                name="genres", column="genres", parser=self._parse_genres, weight=0.67
+            ),
         ]
 
         # Define text features (TF-IDF encoded)
-        # TODO: add summary as another one of these, should be pretty easy
         self.text_features = [
-            TextFeature(name="keywords", column="keywords", max_features=100),
+            TextFeature(
+                name="keywords", column="keywords", max_features=100, weight=0.33
+            ),
         ]
+
+        # Normalize weights so they sum to 1.0
+        self._normalize_weights()
 
         # Initialize encoders
         # we're essentially going to set a dictionary of matrices and methods of how we're creating those matrices
@@ -60,6 +73,23 @@ class Vectorizer:
         # Build all feature encoders and matrices
         self._build_categorical_encoders()
         self._build_text_encoders()
+
+    def _normalize_weights(self):
+        """Normalize all feature weights to sum to 1.0 for consistent scaling."""
+        total_weight = sum(f.weight for f in self.categorical_features) + sum(
+            f.weight for f in self.text_features
+        )
+
+        if total_weight == 0:
+            raise ValueError("Total feature weight cannot be zero")
+
+        # Normalize categorical feature weights
+        for feature in self.categorical_features:
+            feature.weight /= total_weight
+
+        # Normalize text feature weights
+        for feature in self.text_features:
+            feature.weight /= total_weight
 
     def _parse_genres(self, genre_string: str) -> List[str]:
         """Parse genre string into list of genre categories."""
@@ -105,7 +135,7 @@ class Vectorizer:
             text_data = self.df[feature.column].fillna("").astype(str)
 
             # Create and fit TF-IDF encoder
-            # using the TfidfVectorizer library which is useful to classify text 
+            # using the TfidfVectorizer library which is useful to classify text
             # we can filter out stop words through this class
             # for max features, we basically just want to limit how many we're considering
             encoder = TfidfVectorizer(
@@ -181,7 +211,7 @@ class Vectorizer:
         # Convert sparse matrix to dense
         if isinstance(vec, spmatrix):
             vec = vec.todense()
-        
+
         arr = np.asarray(vec).reshape(-1).astype(float)
 
         return arr
@@ -194,12 +224,11 @@ class Vectorizer:
             movie: Movie object to vectorize
 
         Returns:
-            Matrix representing all the movie's vectorized features
+            Matrix representing all the movie's vectorized features (with weights applied)
         """
         feature_vectors = []
 
         # for each categorical feature, vectorize and add to feature vectors.
-        # TODO: figure out how to add weights to each type of vector as needed
         for feature in self.categorical_features:
             # TODO: extend this if statement to include other feature names which are categorical. For now, only genres are.
             if feature.name == "genres":
@@ -208,7 +237,9 @@ class Vectorizer:
                 categories = []
 
             vec = self._get_categorical_vector(feature.name, categories)
-            feature_vectors.append(vec)
+            # Apply weight to feature vector
+            weighted_vec = vec * feature.weight
+            feature_vectors.append(weighted_vec)
 
         # for each text feature, vectorize and add to feature vectors.
         for feature in self.text_features:
@@ -219,7 +250,9 @@ class Vectorizer:
                 text = ""
 
             vec = self._get_text_vector(feature.name, text)
-            feature_vectors.append(vec)
+            # Apply weight to feature vector
+            weighted_vec = vec * feature.weight
+            feature_vectors.append(weighted_vec)
 
         # combine all the vectors we got and store it in movie object
         combined_vector = np.concatenate(feature_vectors)
@@ -228,18 +261,24 @@ class Vectorizer:
 
     def _build_combined_feature_matrix(self) -> np.ndarray:
         """
-        Get the full feature matrix by combining all feature matrices.
+        Get the full feature matrix by combining all feature matrices with weights applied.
 
         Returns:
-            Full vector for movie
+            Full vector for movie (with weights applied)
         """
         matrices = []
 
         for feature in self.categorical_features:
-            matrices.append(self.categorical_matrices[feature.name])
+            matrix = self.categorical_matrices[feature.name]
+            # Apply weight: multiply each row by the feature weight
+            weighted_matrix = matrix * feature.weight
+            matrices.append(weighted_matrix)
 
         for feature in self.text_features:
-            matrices.append(self.text_matrices[feature.name])
+            matrix = self.text_matrices[feature.name]
+            # Apply weight: multiply each row by the feature weight
+            weighted_matrix = matrix * feature.weight
+            matrices.append(weighted_matrix)
 
         return np.hstack(matrices)
 
