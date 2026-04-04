@@ -1,8 +1,3 @@
-# TODO: Prompt user for movies
-# TODO: Get taste profile
-# TODO: Get movies sorted by best match
-# TODO: Return output to user
-
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -44,7 +39,10 @@ def main():
         print(f" - {m.title} ({', '.join(m.genres)})")
 
     print("\nTop 10 recommendations based on genres:")
-    print(recommendations.to_string(index=False))
+    # Format and print only title, release_year, and similarity
+    formatted_recs = recommendations[["title", "release_year", "similarity"]].copy()
+    formatted_recs["release_year"] = formatted_recs["release_year"].astype(int)
+    print(formatted_recs.to_string(index=False))
 
 
 main()
