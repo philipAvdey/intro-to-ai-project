@@ -39,6 +39,17 @@ class TextFeature:
     # stop_words are automatically handled by TfidfVectorizer, e.g. "the", "and"
 
 
+@dataclass
+class NumericFeature:
+    """Class for numeric features (normalized to 0-1 range for consistent scaling)."""
+
+    name: str  # e.g., "popularity", "vote_average"
+    column: str  # column name in DataFrame
+    weight: float = (
+        1.0  # weight for this feature (will be normalized with all other features)
+    )
+
+
 class Vectorizer:
     def __init__(self, df: pd.DataFrame):
         self.df = df.copy()
@@ -47,15 +58,23 @@ class Vectorizer:
         # Weights: relative importance of each feature (will be normalized to sum to 1.0)
         self.categorical_features = [
             CategoricalFeature(
-                name="genres", column="genres", parser=self._parse_genres, weight=0.67
+                name="genres", column="genres", parser=self._parse_genres, weight=0.5
             ),
         ]
 
         # Define text features (TF-IDF encoded)
         self.text_features = [
             TextFeature(
-                name="keywords", column="keywords", max_features=100, weight=0.33
+                name="keywords", column="keywords", max_features=100, weight=0.5
             ),
+        ]
+
+        # Define numeric features (normalized to 0-1 range)
+        # These have lower weights since they're secondary to content-based features
+        self.numeric_features = [
+            NumericFeature(name="popularity", column="popularity", weight=0.15),
+            NumericFeature(name="vote_average", column="vote_average", weight=0.1),
+            NumericFeature(name="release_year", column="release_date", weight=0.05),
         ]
 
         # Normalize weights so they sum to 1.0
@@ -70,14 +89,22 @@ class Vectorizer:
         self.text_encoders: Dict[str, TfidfVectorizer] = {}
         self.text_matrices: Dict[str, np.ndarray] = {}
 
+        self.numeric_matrices: Dict[str, np.ndarray] = {}
+        self.numeric_stats: Dict[str, Dict[str, float]] = (
+            {}
+        )  # Store min/max for normalization
+
         # Build all feature encoders and matrices
         self._build_categorical_encoders()
         self._build_text_encoders()
+        self._build_numeric_matrices()
 
     def _normalize_weights(self):
         """Normalize all feature weights to sum to 1.0 for consistent scaling."""
-        total_weight = sum(f.weight for f in self.categorical_features) + sum(
-            f.weight for f in self.text_features
+        total_weight = (
+            sum(f.weight for f in self.categorical_features)
+            + sum(f.weight for f in self.text_features)
+            + sum(f.weight for f in self.numeric_features)
         )
 
         if total_weight == 0:
@@ -89,6 +116,10 @@ class Vectorizer:
 
         # Normalize text feature weights
         for feature in self.text_features:
+            feature.weight /= total_weight
+
+        # Normalize numeric feature weights
+        for feature in self.numeric_features:
             feature.weight /= total_weight
 
     def _parse_genres(self, genre_string: str) -> List[str]:
@@ -153,6 +184,43 @@ class Vectorizer:
             self.text_encoders[feature.name] = encoder
             self.text_matrices[feature.name] = feature_matrix
 
+    def _build_numeric_matrices(self):
+        """Building numeric feature matrices with normalization to 0-1 range."""
+        for feature in self.numeric_features:
+            if feature.name == "release_year":
+                # Convert release_date strings (e.g., "2001-01-01") to year floats
+                col_data = (
+                    self.df[feature.column]
+                    .fillna("0-01-01")
+                    .apply(Movie.get_year)
+                    .astype(float)
+                )
+            else:
+                col_data = self.df[feature.column].fillna(0).astype(float)
+
+            # Calculate min and max for normalization
+            min_val = col_data.min()
+            max_val = col_data.max()
+
+            # Store stats for later use (e.g., when vectorizing new movies)
+            self.numeric_stats[feature.name] = {
+                "min": min_val,
+                "max": max_val,
+            }
+
+            # Normalize to 0-1 range
+            if max_val == min_val:
+                # Handle case where all values are the same
+                normalized = np.ones(len(col_data), dtype=float) * 0.5
+            else:
+                normalized = (col_data - min_val) / (max_val - min_val)
+
+            # Create matrix (each row is one normalized value)
+            # Convert to numpy array in case normalized is a Series
+            normalized_array = np.asarray(normalized)
+            feature_matrix = normalized_array.reshape(-1, 1).astype(float)
+            self.numeric_matrices[feature.name] = feature_matrix
+
     def _get_categorical_vector(
         self, feature_name: str, categories: List[str]
     ) -> np.ndarray:
@@ -216,6 +284,34 @@ class Vectorizer:
 
         return arr
 
+    def _get_numeric_vector(self, feature_name: str, value: float) -> np.ndarray:
+        """
+        Get normalized numeric vector for a single numeric feature.
+
+        Args:
+            feature_name: Name of the feature (e.g., "popularity", "vote_average")
+            value: Raw numeric value for this movie
+
+        Returns:
+            Normalized numeric vector (0-1 range) for this feature
+        """
+        if feature_name not in self.numeric_stats:
+            return np.array([0.0])
+
+        stats = self.numeric_stats[feature_name]
+        min_val = stats["min"]
+        max_val = stats["max"]
+
+        # Normalize to 0-1 range
+        if max_val == min_val:
+            normalized_value = 0.5
+        else:
+            normalized_value = (value - min_val) / (max_val - min_val)
+            # Clamp to 0-1 range in case value is outside training data range
+            normalized_value = np.clip(normalized_value, 0.0, 1.0)
+
+        return np.array([normalized_value], dtype=float)
+
     def movie_to_vector(self, movie: Movie) -> np.ndarray:
         """
         Get a big matrix of all the combined vectors, as taken from each of the movie's features
@@ -254,6 +350,22 @@ class Vectorizer:
             weighted_vec = vec * feature.weight
             feature_vectors.append(weighted_vec)
 
+        # for each numeric feature, vectorize and add to feature vectors.
+        for feature in self.numeric_features:
+            if feature.name == "popularity":
+                value = movie.popularity if movie.popularity else 0.0
+            elif feature.name == "vote_average":
+                value = movie.vote_average if movie.vote_average else 0.0
+            elif feature.name == "release_year":
+                value = movie.release_year if movie.release_year else 0.0
+            else:
+                value = 0.0
+
+            vec = self._get_numeric_vector(feature.name, value)
+            # Apply weight to feature vector
+            weighted_vec = vec * feature.weight
+            feature_vectors.append(weighted_vec)
+
         # combine all the vectors we got and store it in movie object
         combined_vector = np.concatenate(feature_vectors)
         movie.set_feature_vector(combined_vector)
@@ -276,6 +388,12 @@ class Vectorizer:
 
         for feature in self.text_features:
             matrix = self.text_matrices[feature.name]
+            # Apply weight: multiply each row by the feature weight
+            weighted_matrix = matrix * feature.weight
+            matrices.append(weighted_matrix)
+
+        for feature in self.numeric_features:
+            matrix = self.numeric_matrices[feature.name]
             # Apply weight: multiply each row by the feature weight
             weighted_matrix = matrix * feature.weight
             matrices.append(weighted_matrix)
@@ -316,7 +434,10 @@ class Vectorizer:
         rec_sims = [s for _, s in selected]
         # then add the items with title, genre, and similarity amount as the return value
         result = self.df.iloc[rec_indices].copy()
-        result = result[["title", "genres", "keywords"]]
+        result = result[["title", "release_date"]]
+        # Extract year from release_date
+        result["release_year"] = result["release_date"].apply(Movie.get_year)
+        result = result[["title", "release_year"]]
         result["similarity"] = rec_sims
         result.reset_index(drop=True, inplace=True)
         return result
