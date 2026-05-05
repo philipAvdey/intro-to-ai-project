@@ -5,6 +5,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import pandas as pd
 from data_utils.movie import Movie
 from model.vectorizer import Vectorizer
+from model.t_vectorizer import TVectorizer
 
 num_start_movies = 3
 
