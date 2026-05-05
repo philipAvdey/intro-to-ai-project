@@ -10,8 +10,6 @@ num_start_movies = 3
 
 
 def get_movie_input(df: pd.DataFrame, num: int) -> Movie:
-    # TODO: sanitize & error check input
-    # TODO: need a better way of searching, this is too rigid. use regex?
     print(f"Input movie title {num}:")
     movie_input = input()
     movie_row = df[df["title"] == movie_input]
@@ -38,11 +36,21 @@ def main():
     for m in user_movies:
         print(f" - {m.title} ({', '.join(m.genres)})")
 
-    print("\nTop 10 recommendations based on genres:")
+    print("\nTop 10 recommendations based on genres via cosine similarity model:")
     # Format and print only title, release_year, and similarity
     formatted_recs = recommendations[["title", "release_year", "similarity"]].copy()
     formatted_recs["release_year"] = formatted_recs["release_year"].astype(int)
     print(formatted_recs.to_string(index=False))
 
+    # below, we'll have our transformer model implemented
+    t_vectorizer = TVectorizer(df, vectorizer)
+    t_vectorizer.fit(epochs = 100, verbose = True)
+    t_recs = t_vectorizer.recommend(user_movies, top_n = 10)
 
+    # Format and print only title, release_year, and similarity
+    print("\nTop 10 recommendations based on genres via transformer model:")
+    formatted_t = t_recs[["title", "release_year", "similarity"]].copy()
+    formatted_t["release_year"] = formatted_dl["release_year"].astype(int)
+    print(formatted_t.to_string(index=False))
+    
 main()
