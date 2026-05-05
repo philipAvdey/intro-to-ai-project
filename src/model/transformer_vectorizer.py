@@ -3,10 +3,10 @@ import numpy as np
 import pandas as pd
 import torch
 from sklearn.metrics.pairwise import cosine_similarity
-
 from data_utils.movie import Movie
 from model.vectorizer import Vectorizer
 from model.transformer_encoder import MovieTransformerEncoder, train_transformer
+
 
 class TVectorizer:
     def __init__(self, df: pd.DataFrame, vectorizer: Vectorizer):
@@ -42,10 +42,8 @@ class TVectorizer:
             self.vectorizer._build_combined_feature_matrix(),
             dtype=np.float32
         )
-
         print(f"Training Transformer on {feature_matrix.shape[0]} movies, "
               f"{len(self.feature_dims)} tokens each...")
-
         self.model, self.device = train_transformer(
             feature_matrix=feature_matrix,
             feature_dims=self.feature_dims,
@@ -57,30 +55,29 @@ class TVectorizer:
             lr=lr,
             verbose=verbose,
         )
-
         # compute embeddings for each movie
         X = torch.tensor(feature_matrix, dtype=torch.float32).to(self.device)
         self.embeddings = self.model.encode(X).cpu().numpy()
         print(f"Done! Embedding shape: {self.embeddings.shape}")
 
-def recommend(self, user_movies: List[Movie], top_n: int = 10) -> pd.DataFrame:
+    def recommend(self, user_movies: List[Movie], top_n: int = 10) -> pd.DataFrame:  
         if self.model is None or self.embeddings is None:
             raise RuntimeError("Call fit() before recommend().")
 
-  # encode user-dictated movies using existing vectorizer to transformer
- user_vecs = np.vstack([
+        # encode user movies using existing vectorizer to transformer
+        user_vecs = np.vstack([                    
             self.vectorizer.movie_to_vector(m) for m in user_movies
         ]).astype(np.float32)
 
-   X = torch.tensor(user_vecs, dtype=torch.float32).to(self.device)
+        X = torch.tensor(user_vecs, dtype=torch.float32).to(self.device) 
         user_embeddings = self.model.encode(X).cpu().numpy()
         profile = user_embeddings.mean(axis=0).reshape(1, -1)
 
-# similarity in learned embedding space
-sims = cosine_similarity(profile, self.embeddings).flatten()
+        # similarity in learned embedding space
+        sims = cosine_similarity(profile, self.embeddings).flatten() 
 
-# now, exclude input movies
-user_ids = {m.movie_id for m in user_movies}
+        # exclude input movies
+        user_ids = {m.movie_id for m in user_movies}                 
         order = np.argsort(-sims)
         selected = []
         for idx in order:
@@ -90,7 +87,7 @@ user_ids = {m.movie_id for m in user_movies}
             if len(selected) >= top_n:
                 break
 
-        rec_indices = [i for i, _ in selected]   # ← typo fixed: rec_indcies → rec_indices
+        rec_indices = [i for i, _ in selected]
         rec_sims = [s for _, s in selected]
         result = self.df.iloc[rec_indices].copy()
         result = result[["title", "release_date"]]
