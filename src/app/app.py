@@ -51,7 +51,7 @@ def main():
     # Format and print only title, release_year, and similarity
     print("\nTop 10 recommendations based on genres via transformer model:")
     formatted_t = t_recs[["title", "release_year", "similarity"]].copy()
-    formatted_t["release_year"] = formatted_dl["release_year"].astype(int)
+    formatted_t["release_year"] = formatted_t["release_year"].astype(int)
     print(formatted_t.to_string(index=False))
     
 main()
