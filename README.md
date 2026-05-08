@@ -30,3 +30,31 @@ reconstruction loss.
 - Popularity (normalized)
 - Vote average (normalized)
 - Release year (normalized)
+
+## Installation
+
+```bash
+git clone https://github.com/philipAvdey/intro-to-ai-project.git
+cd intro-to-ai-project
+pip install pandas scikit-learn scipy torch openpyxl
+```
+
+## Usage
+
+Run from the project root:
+
+```bash
+python src/app/app.py
+```
+
+Enter 3 movie titles when prompted. Both models will run and print
+recommendations side by side.
+
+## Limitations
+- Director and studio are not features, limiting style-based recommendations.
+- Transformer results vary slightly between runs due to random initialization.
+
+## Dataset
+
+Filtered movie dataset with 4,375 films including budget, genres, keywords,
+popularity, revenue, vote average, cast, and director.
